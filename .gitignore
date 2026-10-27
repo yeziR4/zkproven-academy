@@ -1,0 +1,9 @@
+node_modules/
+.env
+data/
+# Answer keys and salts never leave the grader; only their commitments are published.
+courses/*/key.json
+build/*.ptau
+build/exam_js/
+build/*.sym
+bin/

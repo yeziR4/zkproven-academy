@@ -1,0 +1,175 @@
+{
+  "id": 1,
+  "slug": "agents-and-zk",
+  "title": "What Agents Can Do with ZK",
+  "summary": "How AI agents use zero-knowledge proofs to make claims anyone can check — and the traps that catch agents who only check that a proof verifies.",
+  "audience": [
+    "human",
+    "agent"
+  ],
+  "passMark": 7,
+  "lessons": [
+    {
+      "id": "proof-not-permission",
+      "title": "1. A proof is not a permission",
+      "body": "A zero-knowledge proof shows that some statement is true for a specific circuit, verification key and set of public inputs. It says nothing about whether that statement is the one you needed. An agent that approves anything whose proof verifies can be fooled by a valid proof of the wrong thing: a proof made with a different verification key, a proof whose public inputs show a balance below the required minimum, a proof for a different recipient, or a proof that was already used. Before acting on a proof, an agent must check what was proven: the verification key matches the one registered for this condition, every public input matches the request, the proof has not been replayed, and any deadline has not passed.",
+      "keyPoints": [
+        "Verification answers 'is this proof valid?', not 'should I act on it?'",
+        "Check the verification key, public inputs, freshness and replay before acting",
+        "A valid proof can still authorize the wrong action"
+      ]
+    },
+    {
+      "id": "commitments",
+      "title": "2. Commitments: bind now, reveal never (or later)",
+      "body": "A commitment is a short value, usually a hash of some data plus a random salt, that you publish before anything else happens. It binds you to the data: you cannot later claim different data produced the same commitment. It also hides the data: without the salt, nobody can work out what you committed to, even if the set of possible values is small. Agents use commitments to lock in a strategy, a price, an answer key or a model before an interaction starts, so that nobody, including the agent, can change it afterwards. ZK-friendly hashes such as Poseidon make commitments cheap to check inside a circuit.",
+      "keyPoints": [
+        "Binding: the committed data cannot be swapped later",
+        "Hiding: the salt stops anyone guessing the data from the commitment",
+        "Commit before the interaction; prove against the commitment during it"
+      ]
+    },
+    {
+      "id": "committed-policies",
+      "title": "3. Committed policies: proving an agent followed its own rules",
+      "body": "An agent can commit to a policy (for example spending limits, allowed recipients, or a game strategy) and then prove, for every action it takes, that the action is exactly what that committed policy permits in the current public state. Observers learn that the agent stayed within its rules without learning the rules themselves. Each proof should bind the context it was made for, such as a match ID, turn number or request ID, so a valid proof cannot be replayed in a different situation. If the agent cannot produce a proof in time, the safe fallback is the least risky action, not an unproven one.",
+      "keyPoints": [
+        "Commit to the policy once; prove each action against it",
+        "Bind proofs to their context to prevent replay",
+        "Fail safe: no proof means no risky action"
+      ]
+    },
+    {
+      "id": "zkverify",
+      "title": "4. Verifying on zkVerify",
+      "body": "Verifying proofs directly on a general-purpose chain is expensive, and some proof systems cannot be verified there at all. zkVerify is a blockchain dedicated to proof verification. It supports many proof systems, including Groth16 (Circom, snarkjs), Noir (UltraHonk/UltraPlonk), RISC Zero, SP1, Plonky2, FFlonk and EZKL. You typically register a verification key once, then submit proofs that reference it, for example through the Kurier REST service. A proof should be treated as confirmed only once its verification is finalized. zkVerify can then aggregate verified proofs and relay a compact attestation to other chains, so a smart contract there can act on 'this proof was verified' cheaply.",
+      "keyPoints": [
+        "Register the verification key once, then submit proofs against it",
+        "Only treat a proof as confirmed after finalization",
+        "Aggregated attestations let other chains act on verified proofs"
+      ]
+    },
+    {
+      "id": "private-credentials",
+      "title": "5. Private credentials: proving a fact without the data",
+      "body": "Many decisions need a fact, not the data behind it: 'is over 18', 'passed this exam', 'balance is above the minimum'. A ZK credential lets the holder prove exactly that fact while the underlying data stays private. This course's own certificate works this way: the exam circuit proves that your committed answers scored at least the pass mark against an answer key that was committed before the exam, without revealing your answers, your score or the key. The certificate is bound to your address so nobody else can claim it, and the key can be reused for future learners because it never leaks.",
+      "keyPoints": [
+        "Prove the fact, keep the data",
+        "Bind credentials to the holder to stop theft and replay",
+        "Committed answer keys stay reusable because they are never revealed"
+      ]
+    }
+  ],
+  "questions": [
+    {
+      "id": 1,
+      "lesson": "proof-not-permission",
+      "prompt": "An agent receives a payment request with a Groth16 proof that verifies successfully. The proof's verification key differs from the key registered for this payment condition. What should the agent do?",
+      "options": [
+        "Approve, because the proof verifies",
+        "Reject: the proof is for a different statement",
+        "Approve, but log a warning",
+        "Ask the requester to resend the same proof"
+      ]
+    },
+    {
+      "id": 2,
+      "lesson": "proof-not-permission",
+      "prompt": "A valid proof shows a public balance of 900. The condition requires a minimum of 1,000. What is correct?",
+      "options": [
+        "Approve: the proof is valid",
+        "Approve if the proof is finalized",
+        "Reject: the proven balance is below the minimum",
+        "Reject only if the proof was reused"
+      ]
+    },
+    {
+      "id": 3,
+      "lesson": "proof-not-permission",
+      "prompt": "Which check stops the same valid proof being used to authorize two different payments?",
+      "options": [
+        "Recording proof references already accepted and rejecting repeats",
+        "Checking the proof's curve",
+        "Re-verifying the proof twice",
+        "Checking the requester's IP address"
+      ]
+    },
+    {
+      "id": 4,
+      "lesson": "commitments",
+      "prompt": "Why does a commitment include a random salt?",
+      "options": [
+        "To make the hash shorter",
+        "So the data can be changed later",
+        "Because Poseidon requires exactly two inputs",
+        "So nobody can guess the committed data by trying every possible value"
+      ]
+    },
+    {
+      "id": 5,
+      "lesson": "commitments",
+      "prompt": "An agent publishes a commitment to its pricing rule before an auction starts. What does this guarantee?",
+      "options": [
+        "Everyone learns the pricing rule",
+        "The agent cannot change its pricing rule after seeing others' bids",
+        "The agent will win the auction",
+        "The rule is optimal"
+      ]
+    },
+    {
+      "id": 6,
+      "lesson": "committed-policies",
+      "prompt": "Each action proof in a match includes the match ID and turn number as public inputs. Why?",
+      "options": [
+        "So a valid proof cannot be replayed in another match or turn",
+        "To make proofs faster",
+        "So opponents can see the strategy",
+        "It is required by the curve"
+      ]
+    },
+    {
+      "id": 7,
+      "lesson": "committed-policies",
+      "prompt": "An agent's proof generation will miss the deadline. Following the fail-safe principle, what should it do?",
+      "options": [
+        "Submit its preferred risky action without a proof",
+        "Crash and let the platform retry",
+        "Submit the least risky action rather than an unproven one",
+        "Submit a proof from an earlier turn"
+      ]
+    },
+    {
+      "id": 8,
+      "lesson": "zkverify",
+      "prompt": "When should an agent treat a proof submitted to zkVerify as confirmed?",
+      "options": [
+        "As soon as the submission request returns",
+        "When the job is included in a block",
+        "When the verification is finalized",
+        "Once it has been retried three times"
+      ]
+    },
+    {
+      "id": 9,
+      "lesson": "zkverify",
+      "prompt": "What lets a smart contract on another chain act on the fact that zkVerify verified a proof, without verifying the proof itself?",
+      "options": [
+        "Copying the proof into the contract's storage",
+        "An aggregated attestation relayed from zkVerify",
+        "Sending the verification key by email",
+        "Running snarkjs inside the contract"
+      ]
+    },
+    {
+      "id": 10,
+      "lesson": "private-credentials",
+      "prompt": "This academy's certificate proves which of the following?",
+      "options": [
+        "Your exact score and every answer",
+        "That you watched every lesson",
+        "That an AI tutor approved you",
+        "That your committed answers met the pass mark against a pre-committed key, without revealing answers or key"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "zkproven-academy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Courses for humans and AI agents with exam certificates proven on zkVerify",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build:circuit": "node scripts/build-circuit.mjs",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "license": "MIT",
+  "dependencies": {
+    "circomlib": "2.0.5",
+    "poseidon-lite": "0.3.0",
+    "snarkjs": "0.7.5"
+  }
+}
