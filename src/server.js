@@ -8,6 +8,7 @@ import { makeKurier } from "./kurier.js";
 import { createApi } from "./api.js";
 import { makeLlm } from "./llm.js";
 import { serveStatic } from "./static.js";
+import { makeRelayer } from "./relayer.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 const config = {
@@ -18,6 +19,11 @@ const config = {
   kurierApiUrl: process.env.KURIER_API_URL ?? "https://api-testnet.kurier.xyz/api/v1",
   // Optional: relay verified certificates to this EVM chain (e.g. 11155111 Sepolia) for on-chain rewards.
   aggregationChainId: process.env.ZKVERIFY_CHAIN_ID ?? "",
+  // Fallback when Kurier's job status does not carry the aggregation domain.
+  domainId: process.env.ZKVERIFY_DOMAIN_ID ?? null,
+  rewardsAddress: process.env.REWARDS_ADDRESS ?? "",
+  relayerKey: process.env.RELAYER_PRIVATE_KEY ?? "",
+  rewardRpcUrl: process.env.REWARD_RPC_URL ?? "",
 };
 
 const store = new Store(config.dataDir);
@@ -40,7 +46,13 @@ for (const c of courses.values()) log(`course ${c.slug}: keyCommitment ${c.keyCo
 const llm = makeLlm();
 if (!llm) log("LLM_BASE_URL / LLM_MODEL not set: the tutor will be unavailable");
 
-const api = createApi({ courses, prover, store, kurier, llm, log });
+const relayer = config.aggregationChainId
+  ? makeRelayer({ privateKey: config.relayerKey, rpcUrl: config.rewardRpcUrl, rewardsAddress: config.rewardsAddress, chainId: config.aggregationChainId })
+  : null;
+if (relayer) log(`rewards: ${relayer.rewardsAddress} on ${relayer.chain.name}, relayer ${relayer.address}`);
+else log("rewards disabled (set ZKVERIFY_CHAIN_ID, REWARDS_ADDRESS, RELAYER_PRIVATE_KEY)");
+
+const api = createApi({ courses, prover, store, kurier, llm, relayer, limits: { domainId: config.domainId }, log });
 const web = serveStatic(path.join(root, "public"));
 http
   .createServer((req, res) => (req.url.startsWith("/api/") ? api(req, res) : web(req, res)))

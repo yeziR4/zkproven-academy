@@ -7,3 +7,7 @@ build/*.ptau
 build/exam_js/
 build/*.sym
 bin/
+# Foundry: dependencies are reinstalled with `forge install`; build output is regenerated
+contracts/lib/
+contracts/out/
+contracts/cache/

@@ -8,6 +8,8 @@ const STATUS_LABEL = {
   Submitting: "submitting…",
   IncludedInBlock: "included in a block",
   Finalized: "finalized ✓",
+  AggregationPending: "finalized ✓, waiting to be relayed on-chain",
+  Aggregated: "finalized ✓, aggregated",
   AggregationPublished: "finalized and relayed ✓",
   SubmitFailed: "submission failed",
 };
@@ -283,6 +285,8 @@ async function certificate(id) {
         <dt>Answers commitment</dt><dd class="mono">${esc(short(sig("answersCommitment"), 14))}</dd>
         ${z.txHash ? `<dt>zkVerify tx</dt><dd class="mono">${esc(short(z.txHash, 14))}</dd>` : ""}
         ${z.jobId ? `<dt>Kurier job</dt><dd class="mono">${esc(z.jobId)}</dd>` : ""}
+        ${z.aggregation ? `<dt>zkVerify aggregation</dt><dd class="mono">#${esc(z.aggregation.aggregationId)} · leaf ${z.aggregation.leafMatches ? "✓ matches" : "✗ mismatch"}</dd>` : ""}
+        ${rewardRow(c.reward)}
       </dl>
       <p class="muted">What this proves: answers committed by this address scored at least the pass mark against the answer key committed for this course. The answers, the score and the key stay private.</p>
       <div class="btn-row"><button class="btn" id="check">Verify in my browser</button><button class="btn secondary" id="copy">Copy proof JSON</button></div>
@@ -294,7 +298,23 @@ async function certificate(id) {
     await navigator.clipboard.writeText(JSON.stringify({ proof: c.proof, publicSignals: c.publicSignals }));
     document.getElementById("copy").textContent = "Copied";
   };
-  if (!TERMINAL.has(z.status)) pollTimer = setTimeout(render, 5000);
+  const rewardPending = c.reward && ["Claiming"].includes(c.reward.status);
+  if (!TERMINAL.has(z.status) || rewardPending || (z.status === "Finalized" && !c.reward && (await rewardsEnabled()))) pollTimer = setTimeout(render, 5000);
+}
+
+let rewardsInfo;
+async function rewardsEnabled() {
+  rewardsInfo ??= await api("GET", "/api/rewards").catch(() => null);
+  return Boolean(rewardsInfo);
+}
+
+function rewardRow(r) {
+  if (!r) return "";
+  if (r.status === "Claimed") {
+    return `<dt>On-chain reward</dt><dd><span class="badge ok">Credential #${esc(r.tokenId)} + ZKPL minted</span> <a href="${esc(r.explorer)}" target="_blank" rel="noopener">View on explorer ↗</a></dd>`;
+  }
+  const label = { Claiming: "claiming…", ClaimFailed: `claim failed: ${r.error ?? ""}`, NotClaimable: `not claimable: ${r.reason ?? ""}`, Reverted: "claim reverted" }[r.status] ?? r.status;
+  return `<dt>On-chain reward</dt><dd><span class="badge ${r.status === "Claiming" ? "warn" : "bad"}">${esc(label)}</span></dd>`;
 }
 
 async function runChecks(proof, publicSignals, target) {

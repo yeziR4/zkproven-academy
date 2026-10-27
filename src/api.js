@@ -4,6 +4,7 @@ import { publicCourse, examQuestions } from "./courses.js";
 import { TERMINAL } from "./kurier.js";
 import { submissionMessage, recoverSigner } from "./wallet.js";
 import { tutorMessages } from "./tutor.js";
+import { groth16Leaf } from "./leaf.js";
 
 const ATTEMPT_TTL_MS = 30 * 60_000;
 const MAX_BODY = 64 * 1024;
@@ -12,7 +13,7 @@ const MAX_BODY = 64 * 1024;
  * deps: { courses, prover, store, kurier?, limits?, now? }
  * Returns a node:http listener serving the JSON API under /api.
  */
-export function createApi({ courses, prover, store, kurier = null, llm = null, limits = {}, now = () => Date.now(), log = () => {} }) {
+export function createApi({ courses, prover, store, kurier = null, llm = null, relayer = null, limits = {}, now = () => Date.now(), log = () => {} }) {
   const attempts = store.collection("attempts");
   const certs = store.collection("certificates");
   const maxAttempts = limits.attemptsPerDay ?? 3;
@@ -35,6 +36,7 @@ export function createApi({ courses, prover, store, kurier = null, llm = null, l
     }],
     ["POST", /^\/api\/verify$/, verify],
     ["GET", /^\/api\/vk$/, () => ok(prover.vk)],
+    ["GET", /^\/api\/rewards$/, () => ok(relayer ? { chainId: relayer.chain.id, chain: relayer.chain.name, contract: relayer.rewardsAddress, explorer: relayer.chain.blockExplorers.default.url } : null)],
     ["POST", /^\/api\/tutor$/, tutor],
   ];
 
@@ -156,14 +158,54 @@ export function createApi({ courses, prover, store, kurier = null, llm = null, l
         const s = await kurier.status(jobId);
         const current = certs.get(certId);
         if (s.status !== current.zkverify.status) {
-          certs.put({ ...current, zkverify: { ...current.zkverify, status: s.status, txHash: s.txHash ?? current.zkverify.txHash, details: s } });
+          const zkverify = { ...current.zkverify, status: s.status, txHash: s.txHash ?? current.zkverify.txHash };
+          if (s.aggregationDetails) zkverify.aggregation = await aggregationOf(s, current.publicSignals);
+          certs.put({ ...current, zkverify });
+          if (s.status === "AggregationPublished") return claimReward(certId);
         }
         if (TERMINAL.has(s.status) && !(s.status === "Finalized" && kurier.waitForAggregation)) return;
       } catch (err) {
         log(`zkverify status error for ${certId}: ${err.message}`);
       }
-      if (tries < 120) pollJob(certId, jobId, tries + 1);
+      // Aggregation can take a while; keep checking for up to ~2h.
+      if (tries < 300) pollJob(certId, jobId, tries + 1);
     }, Math.min(5_000 * 2 ** Math.min(tries, 3), 30_000));
+  }
+
+  /** Normalizes Kurier's aggregation data and checks it is the leaf our contract will rebuild. */
+  async function aggregationOf(s, publicSignals) {
+    const d = s.aggregationDetails;
+    const expectedLeaf = groth16Leaf(await kurier.vkHash(), publicSignals);
+    const agg = {
+      domainId: s.domainId ?? d.domainId ?? limits.domainId ?? null,
+      aggregationId: s.aggregationId ?? d.aggregationId,
+      leaf: d.leaf,
+      leafIndex: d.leafIndex,
+      numberOfLeaves: d.numberOfLeaves,
+      merkleProof: d.merkleProof,
+      receipt: d.receipt,
+      leafMatches: d.leaf?.toLowerCase() === expectedLeaf.toLowerCase(),
+    };
+    if (!agg.leafMatches) log(`leaf mismatch: kurier ${d.leaf} vs ours ${expectedLeaf}`);
+    return agg;
+  }
+
+  async function claimReward(certId) {
+    const cert = certs.get(certId);
+    if (!relayer) return;
+    const agg = cert.zkverify.aggregation;
+    if (!agg?.leafMatches || agg.domainId == null) {
+      certs.put({ ...cert, reward: { status: "NotClaimable", reason: !agg?.leafMatches ? "leaf mismatch" : "unknown domainId" } });
+      return;
+    }
+    certs.put({ ...cert, reward: { status: "Claiming" } });
+    try {
+      const r = await relayer.claim({ publicSignals: cert.publicSignals, aggregation: agg });
+      certs.put({ ...certs.get(certId), reward: { status: r.status === "success" ? "Claimed" : "Reverted", ...r, contract: relayer.rewardsAddress, chainId: relayer.chain.id } });
+    } catch (err) {
+      log(`reward claim failed for ${certId}: ${err.shortMessage ?? err.message}`);
+      certs.put({ ...certs.get(certId), reward: { status: "ClaimFailed", error: err.shortMessage ?? err.message } });
+    }
   }
 
   /** Anyone can check a certificate: valid proof AND it is for a real course's committed key and pass mark. */

@@ -49,6 +49,14 @@ Trust that remains: the issuer still sees answers in order to grade them; the pr
 ## Demo (~3 min)
 Human passes → agent passes via API → both certificates verified on zkVerify → tampered score and swapped key both fail → credential + token land on-chain.
 
+## On-chain reward (Base Sepolia)
+1. The grader submits the certificate proof to Kurier with `chainId 84532`.
+2. zkVerify verifies it, aggregates it, and publishes the aggregation root to its contract on Base Sepolia (`0x0807C544…e8A8`).
+3. The grader checks Kurier's leaf equals the leaf it computes itself (`src/leaf.js`), then a relayer calls `ZkProvenRewards.claim(...)` so learners never need gas.
+4. `claim` rebuilds the zkVerify leaf from the six public signals and checks it against zkVerify's contract, then requires the course's registered key commitment and pass mark, one claim per attempt and per learner. It mints a **soulbound credential (ZKPC)** and **100 ZKPL** to the recipient inside the proof — whoever submits.
+
+The academy server is not trusted on-chain: it cannot mint for an unverified, redirected, or easier-pass-mark certificate (see `contracts/test`).
+
 ## On-chain record
 - Exam verification key registered on zkVerify mainnet (Kurier): `vkHash 0x8af695657075b7546405f8afd2d72986f8c3d97143aa9d0127e1c674494b679f`
 - First certificate finalized on zkVerify mainnet: tx `0xad225cdfc33e1d76fa2a4a561ea11b5c089504e8337c715de4f3924dcbfb43b8` (27 Oct 2026)
