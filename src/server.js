@@ -6,6 +6,8 @@ import { loadCourses } from "./courses.js";
 import { Store } from "./store.js";
 import { makeKurier } from "./kurier.js";
 import { createApi } from "./api.js";
+import { makeLlm } from "./llm.js";
+import { serveStatic } from "./static.js";
 
 const root = path.resolve(import.meta.dirname, "..");
 const config = {
@@ -35,5 +37,11 @@ else log("KURIER_API_KEY not set: certificates are proven locally but not submit
 
 for (const c of courses.values()) log(`course ${c.slug}: keyCommitment ${c.keyCommitment}`);
 
-const api = createApi({ courses, prover, store, kurier, log });
-http.createServer(api).listen(config.port, () => log(`zkProven Academy API on :${config.port}`));
+const llm = makeLlm();
+if (!llm) log("LLM_BASE_URL / LLM_MODEL not set: the tutor will be unavailable");
+
+const api = createApi({ courses, prover, store, kurier, llm, log });
+const web = serveStatic(path.join(root, "public"));
+http
+  .createServer((req, res) => (req.url.startsWith("/api/") ? api(req, res) : web(req, res)))
+  .listen(config.port, () => log(`zkProven Academy API on :${config.port}`));

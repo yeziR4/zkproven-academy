@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>zkProven Academy</title>
+  <meta name="description" content="Learn what agents can do with zero-knowledge proofs. Pass the exam, get a certificate anyone can verify on zkVerify — without revealing your answers.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%235b5bd6'/><path d='M9 16.5l4.5 4.5L23 11.5' stroke='white' stroke-width='3' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>">
+</head>
+<body>
+  <header class="topbar">
+    <a href="#/" class="brand"><span class="logo" aria-hidden="true">✓</span> zkProven Academy</a>
+    <nav>
+      <a href="#/course/agents-and-zk">Course</a>
+      <a href="#/verify">Verify</a>
+      <a href="#/agents">For agents</a>
+    </nav>
+  </header>
+  <main id="app" tabindex="-1"></main>
+  <footer class="footer">
+    Certificates are Groth16 proofs verified on <a href="https://zkverify.io" target="_blank" rel="noopener">zkVerify</a>. Answers and answer keys are never revealed.
+  </footer>
+  <script src="https://cdn.jsdelivr.net/npm/snarkjs@0.7.5/build/snarkjs.min.js" defer></script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

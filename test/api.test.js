@@ -8,14 +8,24 @@ import { createApi } from "../src/api.js";
 import { loadCourses } from "../src/courses.js";
 import { ExamProver, answersCommitment, randomField } from "../src/exam.js";
 import { Store } from "../src/store.js";
+import { newAgentKey, signMessage, submissionMessage } from "../src/wallet.js";
 
 let server, base;
 const KEY = JSON.parse(fs.readFileSync("courses/agents-and-zk/key.json", "utf8")).key;
-const learner = (n) => `0x${String(n).padStart(40, "0")}`;
+const keys = new Map();
+const learner = (n) => {
+  if (!keys.has(n)) keys.set(n, newAgentKey());
+  return keys.get(n);
+};
+let tutorCalls = [];
+const fakeLlm = async (messages) => {
+  tutorCalls.push(messages);
+  return "Commitments bind and hide.";
+};
 
 before(async () => {
   const store = new Store(fs.mkdtempSync(path.join(os.tmpdir(), "academy-")));
-  server = http.createServer(createApi({ courses: loadCourses("courses"), prover: new ExamProver(), store, limits: { attemptsPerDay: 2 } }));
+  server = http.createServer(createApi({ courses: loadCourses("courses"), prover: new ExamProver(), store, llm: fakeLlm, limits: { attemptsPerDay: 2 } }));
   await new Promise((r) => server.listen(0, r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -28,10 +38,12 @@ const call = async (method, route, body) => {
   const res = await fetch(base + route, { method, headers: { "content-type": "application/json" }, body: body && JSON.stringify(body) });
   return { status: res.status, data: await res.json() };
 };
-async function take(recipient, answers) {
-  const { data: attempt } = await call("POST", "/api/attempts", { course: "agents-and-zk", recipient });
+async function take(who, answers, signer = who) {
+  const { data: attempt } = await call("POST", "/api/attempts", { course: "agents-and-zk", recipient: who.address });
   const salt = randomField();
-  const r = await call("POST", `/api/attempts/${attempt.attemptId}/submit`, { answers, answersSalt: salt.toString() });
+  const commitment = answersCommitment(BigInt(attempt.attemptId), answers, salt).toString();
+  const signature = signMessage(signer.privateKey, submissionMessage({ course: "agents-and-zk", attemptId: attempt.attemptId, answersCommitment: commitment, recipient: who.address }));
+  const r = await call("POST", `/api/attempts/${attempt.attemptId}/submit`, { answers, answersSalt: salt.toString(), signature });
   return { attempt, salt, ...r };
 }
 
@@ -48,7 +60,35 @@ test("passing yields a certificate that the public verifier accepts", async () =
   assert.equal(r.data.answersCommitment, answersCommitment(BigInt(r.attempt.attemptId), KEY, r.salt).toString());
   const v = await call("POST", "/api/verify", { proof: r.data.certificate.proof, publicSignals: r.data.certificate.publicSignals });
   assert.equal(v.data.valid, true);
-  assert.equal(v.data.recipient, learner(1));
+  assert.equal(v.data.recipient, learner(1).address);
+});
+
+test("nobody can sit the exam for someone else's address", async () => {
+  const r = await take(learner(7), KEY, learner(8)); // learner 8 signs for learner 7
+  assert.equal(r.status, 401);
+  const unsigned = await call("POST", "/api/attempts", { course: "agents-and-zk", recipient: learner(9).address });
+  const u = await call("POST", `/api/attempts/${unsigned.data.attemptId}/submit`, { answers: KEY, answersSalt: "5" });
+  assert.equal(u.status, 401);
+});
+
+test("a signature over different answers is rejected (it binds the commitment)", async () => {
+  const who = learner(10);
+  const { data: attempt } = await call("POST", "/api/attempts", { course: "agents-and-zk", recipient: who.address });
+  const salt = randomField();
+  const signedFor = answersCommitment(BigInt(attempt.attemptId), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], salt).toString();
+  const signature = signMessage(who.privateKey, submissionMessage({ course: "agents-and-zk", attemptId: attempt.attemptId, answersCommitment: signedFor, recipient: who.address }));
+  const r = await call("POST", `/api/attempts/${attempt.attemptId}/submit`, { answers: KEY, answersSalt: salt.toString(), signature });
+  assert.equal(r.status, 401);
+});
+
+test("the tutor sees lesson text but never the answer key", async () => {
+  tutorCalls = [];
+  const r = await call("POST", "/api/tutor", { course: "agents-and-zk", messages: [{ role: "user", content: "What is a commitment?" }] });
+  assert.equal(r.data.reply, "Commitments bind and hide.");
+  const prompt = JSON.stringify(tutorCalls[0]);
+  assert.ok(prompt.includes("Commitments: bind now"));
+  const { keySalt } = JSON.parse(fs.readFileSync("courses/agents-and-zk/key.json", "utf8"));
+  assert.ok(!prompt.includes(keySalt) && !prompt.includes('"key"'));
 });
 
 test("failing reveals nothing but the fact of failing", async () => {
@@ -60,7 +100,7 @@ test("failing reveals nothing but the fact of failing", async () => {
 test("attempts are rate limited per learner (pass/fail is an oracle on the key)", async () => {
   await take(learner(3), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   await take(learner(3), [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
-  const third = await call("POST", "/api/attempts", { course: "agents-and-zk", recipient: learner(3) });
+  const third = await call("POST", "/api/attempts", { course: "agents-and-zk", recipient: learner(3).address });
   assert.equal(third.status, 429);
 });
 
@@ -68,13 +108,13 @@ test("an attempt cannot be submitted twice, and a certified learner cannot re-en
   const r = await take(learner(4), KEY);
   const again = await call("POST", `/api/attempts/${r.attempt.attemptId}/submit`, { answers: KEY, answersSalt: "1" });
   assert.equal(again.status, 409);
-  assert.equal((await call("POST", "/api/attempts", { course: "agents-and-zk", recipient: learner(4) })).status, 409);
+  assert.equal((await call("POST", "/api/attempts", { course: "agents-and-zk", recipient: learner(4).address })).status, 409);
 });
 
 test("the verifier rejects a certificate whose recipient was swapped", async () => {
   const r = await take(learner(5), KEY);
   const forged = [...r.data.certificate.publicSignals];
-  forged[5] = BigInt(learner(6)).toString();
+  forged[5] = BigInt(learner(6).address).toString();
   const v = await call("POST", "/api/verify", { proof: r.data.certificate.proof, publicSignals: forged });
   assert.equal(v.data.valid, false);
   assert.equal(v.data.checks.proofValid, false);

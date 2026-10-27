@@ -1,20 +1,27 @@
 // An AI agent that studies a course, takes the exam, and checks its certificate.
 //
-//   node scripts/agent-learner.mjs --recipient 0xYourAddress [--course agents-and-zk] [--api http://localhost:8090]
-//   (answers with LLM_BASE_URL / LLM_API_KEY / LLM_MODEL, or pass --answers B,C,A,... to skip the model)
+//   node scripts/agent-learner.mjs [--course agents-and-zk] [--api http://localhost:8090]
+//   The agent signs with AGENT_PRIVATE_KEY (its certificate goes to that key's address);
+//   without one it generates a throwaway key. Answers come from LLM_BASE_URL / LLM_API_KEY /
+//   LLM_MODEL, or pass --answers B,C,A,... to skip the model.
 import { parseArgs } from "node:util";
+import { secp256k1 } from "@noble/curves/secp256k1";
 import { answersCommitment, randomField } from "../src/exam.js";
 import { makeLlm } from "../src/llm.js";
+import { submissionMessage, signMessage, addressOfPublicKey, newAgentKey } from "../src/wallet.js";
 
 const { values: args } = parseArgs({
   options: {
     api: { type: "string", default: process.env.ACADEMY_API ?? "http://localhost:8090" },
     course: { type: "string", default: "agents-and-zk" },
-    recipient: { type: "string" },
     answers: { type: "string" },
   },
 });
-if (!args.recipient) throw new Error("--recipient 0x... is required (the certificate is bound to it)");
+const agentKey = process.env.AGENT_PRIVATE_KEY
+  ? { privateKey: process.env.AGENT_PRIVATE_KEY, address: addressOfPublicKey(secp256k1.getPublicKey(process.env.AGENT_PRIVATE_KEY.replace(/^0x/, ""), false)) }
+  : newAgentKey();
+args.recipient = agentKey.address;
+console.log(`agent address: ${agentKey.address}${process.env.AGENT_PRIVATE_KEY ? "" : " (throwaway key; set AGENT_PRIVATE_KEY to keep one)"}`);
 
 const api = async (method, route, body) => {
   const res = await fetch(args.api + route, { method, headers: { "content-type": "application/json" }, body: body && JSON.stringify(body) });
@@ -56,7 +63,8 @@ console.log(`answers: ${answers.map((a) => LETTERS[a]).join(" ")}`);
 // 4. Commit + submit. The salt is our receipt: we can prove later which answers were graded.
 const answersSalt = randomField();
 const myCommitment = answersCommitment(BigInt(attempt.attemptId), answers, answersSalt).toString();
-const result = await api("POST", `/api/attempts/${attempt.attemptId}/submit`, { answers, answersSalt: answersSalt.toString() });
+const signature = signMessage(agentKey.privateKey, submissionMessage({ course: args.course, attemptId: attempt.attemptId, answersCommitment: myCommitment, recipient: agentKey.address }));
+const result = await api("POST", `/api/attempts/${attempt.attemptId}/submit`, { answers, answersSalt: answersSalt.toString(), signature });
 if (result.answersCommitment !== myCommitment) throw new Error("grader's answer commitment differs from ours — it graded something else");
 console.log(`answers commitment matches our receipt: ${myCommitment.slice(0, 16)}…`);
 

@@ -2,6 +2,8 @@ import crypto from "node:crypto";
 import { answersCommitment, randomField, recipientField, score, SIGNALS, QUESTIONS } from "./exam.js";
 import { publicCourse, examQuestions } from "./courses.js";
 import { TERMINAL } from "./kurier.js";
+import { submissionMessage, recoverSigner } from "./wallet.js";
+import { tutorMessages } from "./tutor.js";
 
 const ATTEMPT_TTL_MS = 30 * 60_000;
 const MAX_BODY = 64 * 1024;
@@ -10,7 +12,7 @@ const MAX_BODY = 64 * 1024;
  * deps: { courses, prover, store, kurier?, limits?, now? }
  * Returns a node:http listener serving the JSON API under /api.
  */
-export function createApi({ courses, prover, store, kurier = null, limits = {}, now = () => Date.now(), log = () => {} }) {
+export function createApi({ courses, prover, store, kurier = null, llm = null, limits = {}, now = () => Date.now(), log = () => {} }) {
   const attempts = store.collection("attempts");
   const certs = store.collection("certificates");
   const maxAttempts = limits.attemptsPerDay ?? 3;
@@ -32,7 +34,26 @@ export function createApi({ courses, prover, store, kurier = null, limits = {}, 
       return ok(certs.all().filter((c) => !r || c.recipient === r));
     }],
     ["POST", /^\/api\/verify$/, verify],
+    ["GET", /^\/api\/vk$/, () => ok(prover.vk)],
+    ["POST", /^\/api\/tutor$/, tutor],
   ];
+
+  const tutorUse = new Map(); // client ip -> recent request timestamps
+
+  async function tutor(req) {
+    if (!llm) return fail(503, "tutor is not configured (set LLM_BASE_URL and LLM_MODEL)");
+    const ip = req.socket.remoteAddress ?? "?";
+    const recent = (tutorUse.get(ip) ?? []).filter((t) => now() - t < 60_000);
+    if (recent.length >= (limits.tutorPerMinute ?? 10)) return fail(429, "slow down: tutor limit per minute reached");
+    tutorUse.set(ip, [...recent, now()]);
+
+    const { course: slug, messages } = await body(req);
+    const course = courses.get(slug);
+    if (!course) return fail(404, "unknown course");
+    if (!Array.isArray(messages) || messages.length === 0) return fail(400, "messages required");
+    const reply = await llm(tutorMessages(course, messages), { temperature: 0.3 });
+    return ok({ reply });
+  }
 
   async function startAttempt(req) {
     const { course: slug, recipient } = await body(req);
@@ -72,7 +93,7 @@ export function createApi({ courses, prover, store, kurier = null, limits = {}, 
     if (!attempt) return fail(404, "unknown attempt");
     if (attempt.status !== "open") return fail(409, "attempt already submitted");
     if (now() > attempt.expiresAt) return fail(410, "attempt expired");
-    const { answers, answersSalt } = await body(req);
+    const { answers, answersSalt, signature } = await body(req);
     if (!Array.isArray(answers) || answers.length !== QUESTIONS || !answers.every((a) => Number.isInteger(a) && a >= 0 && a <= 3)) {
       return fail(400, `answers must be ${QUESTIONS} option indexes 0..3`);
     }
@@ -85,6 +106,11 @@ export function createApi({ courses, prover, store, kurier = null, limits = {}, 
 
     const course = courses.get(attempt.course);
     const commitment = answersCommitment(attempt.id, answers, salt).toString();
+    // Only the recipient's own key can submit, so nobody can sit an exam for someone else's address.
+    const message = submissionMessage({ course: attempt.course, attemptId: attempt.id, answersCommitment: commitment, recipient: attempt.recipient });
+    if (typeof signature !== "string" || recoverSigner(message, signature) !== attempt.recipient) {
+      return fail(401, "signature must be the recipient's personal_sign of the submission message");
+    }
     const passed = score(answers, course.secret.key) >= course.passMark;
     attempts.put({ ...attempt, status: passed ? "passed" : "failed", submittedAt: now(), answersCommitment: commitment });
     if (!passed) return ok({ passed: false, answersCommitment: commitment });
