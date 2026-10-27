@@ -49,6 +49,10 @@ Trust that remains: the issuer still sees answers in order to grade them; the pr
 ## Demo (~3 min)
 Human passes → agent passes via API → both certificates verified on zkVerify → tampered score and swapped key both fail → credential + token land on-chain.
 
+## On-chain record
+- Exam verification key registered on zkVerify mainnet (Kurier): `vkHash 0x8af695657075b7546405f8afd2d72986f8c3d97143aa9d0127e1c674494b679f`
+- First certificate finalized on zkVerify mainnet: tx `0xad225cdfc33e1d76fa2a4a561ea11b5c089504e8337c715de4f3924dcbfb43b8` (27 Oct 2026)
+
 ## Plan
 | Week | Deliverable |
 |---|---|
