@@ -1,0 +1,13 @@
+node_modules
+data
+.env
+.git
+bin
+contracts
+test
+scripts
+build/*.ptau
+build/exam_js
+build/*.r1cs
+build/*.sym
+courses/*/key.json
