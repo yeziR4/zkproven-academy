@@ -285,7 +285,7 @@ async function certificate(id) {
         <dt>Answers commitment</dt><dd class="mono">${esc(short(sig("answersCommitment"), 14))}</dd>
         ${z.txHash ? `<dt>zkVerify tx</dt><dd class="mono">${esc(short(z.txHash, 14))}</dd>` : ""}
         ${z.jobId ? `<dt>Kurier job</dt><dd class="mono">${esc(z.jobId)}</dd>` : ""}
-        ${z.aggregation ? `<dt>zkVerify aggregation</dt><dd class="mono">#${esc(z.aggregation.aggregationId)} · leaf ${z.aggregation.leafMatches ? "✓ matches" : "✗ mismatch"}</dd>` : ""}
+        ${relayRow(c.relay)}
         ${rewardRow(c.reward)}
       </dl>
       <p class="muted">What this proves: answers committed by this address scored at least the pass mark against the answer key committed for this course. The answers, the score and the key stay private.</p>
@@ -298,14 +298,24 @@ async function certificate(id) {
     await navigator.clipboard.writeText(JSON.stringify({ proof: c.proof, publicSignals: c.publicSignals }));
     document.getElementById("copy").textContent = "Copied";
   };
-  const rewardPending = c.reward && ["Claiming"].includes(c.reward.status);
-  if (!TERMINAL.has(z.status) || rewardPending || (z.status === "Finalized" && !c.reward && (await rewardsEnabled()))) pollTimer = setTimeout(render, 5000);
+  const relayPending = c.relay && !["AggregationPublished", "Failed", "SubmitFailed"].includes(c.relay.status);
+  const rewardPending = c.reward?.status === "Claiming" || (c.relay?.status === "AggregationPublished" && !c.reward);
+  if (!TERMINAL.has(z.status) || relayPending || rewardPending) pollTimer = setTimeout(render, 5000);
 }
 
-let rewardsInfo;
-async function rewardsEnabled() {
-  rewardsInfo ??= await api("GET", "/api/rewards").catch(() => null);
-  return Boolean(rewardsInfo);
+function relayRow(r) {
+  if (!r) return "";
+  const label = {
+    Submitting: "submitting…",
+    Submitted: "verifying…",
+    IncludedInBlock: "verifying…",
+    Finalized: "verified, waiting for aggregation",
+    AggregationPending: "waiting for aggregation (can take a while)",
+    Aggregated: "aggregated, relaying to Base Sepolia…",
+    AggregationPublished: "published on Base Sepolia ✓",
+  }[r.status] ?? r.status;
+  const agg = r.aggregation ? ` · aggregation #${esc(r.aggregation.aggregationId)} · leaf ${r.aggregation.leafMatches ? "✓" : "✗"}` : "";
+  return `<dt>Relay to Base Sepolia</dt><dd><span class="badge ${r.status === "AggregationPublished" ? "ok" : /Fail/.test(r.status) ? "bad" : "warn"}">${esc(label)}</span><span class="mono">${agg}</span></dd>`;
 }
 
 function rewardRow(r) {

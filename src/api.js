@@ -13,7 +13,13 @@ const MAX_BODY = 64 * 1024;
  * deps: { courses, prover, store, kurier?, limits?, now? }
  * Returns a node:http listener serving the JSON API under /api.
  */
-export function createApi({ courses, prover, store, kurier = null, llm = null, relayer = null, limits = {}, now = () => Date.now(), log = () => {} }) {
+export function createApi({ courses, prover, store, kurier = null, rewardKurier = null, llm = null, relayer = null, limits = {}, now = () => Date.now(), log = () => {} }) {
+  // A passing certificate is submitted to zkVerify for the certificate record and,
+  // when rewards are on, separately to the zkVerify network that relays to the
+  // reward chain (mainnet zkVerify only relays to mainnet chains).
+  const certTrack = kurier && { field: "zkverify", client: kurier, done: TERMINAL };
+  const relayTrack = rewardKurier && relayer && { field: "relay", client: rewardKurier, done: new Set(["AggregationPublished", "Failed"]), onPublished: (id) => claimReward(id) };
+  const tracks = [certTrack, relayTrack].filter(Boolean);
   const attempts = store.collection("attempts");
   const certs = store.collection("certificates");
   const maxAttempts = limits.attemptsPerDay ?? 3;
@@ -136,46 +142,48 @@ export function createApi({ courses, prover, store, kurier = null, llm = null, r
       publicSignals,
       proof,
       zkverify: kurier ? { status: "Submitting" } : { status: "NotSubmitted" },
+      ...(relayTrack ? { relay: { status: "Submitting" } } : {}),
     });
-    if (kurier) submitToZkVerify(cert);
+    for (const track of tracks) submit(cert.id, track);
     return ok({ passed: true, answersCommitment: commitment, certificate: cert });
   }
 
-  async function submitToZkVerify(cert) {
+  async function submit(certId, track) {
     try {
-      const job = await kurier.submit(cert);
-      certs.put({ ...certs.get(cert.id), zkverify: { status: "Submitted", ...job } });
-      pollJob(cert.id, job.jobId);
+      const job = await track.client.submit(certs.get(certId));
+      certs.put({ ...certs.get(certId), [track.field]: { status: "Submitted", ...job } });
+      pollJob(certId, job.jobId, track);
     } catch (err) {
-      log(`zkverify submit failed for ${cert.id}: ${err.message}`);
-      certs.put({ ...certs.get(cert.id), zkverify: { status: "SubmitFailed", error: err.message } });
+      log(`${track.field} submit failed for ${certId}: ${err.message}`);
+      certs.put({ ...certs.get(certId), [track.field]: { status: "SubmitFailed", error: err.message } });
     }
   }
 
-  function pollJob(certId, jobId, tries = 0) {
+  function pollJob(certId, jobId, track, tries = 0) {
     setTimeout(async () => {
       try {
-        const s = await kurier.status(jobId);
+        const s = await track.client.status(jobId);
         const current = certs.get(certId);
-        if (s.status !== current.zkverify.status) {
-          const zkverify = { ...current.zkverify, status: s.status, txHash: s.txHash ?? current.zkverify.txHash };
-          if (s.aggregationDetails) zkverify.aggregation = await aggregationOf(s, current.publicSignals);
-          certs.put({ ...current, zkverify });
-          if (s.status === "AggregationPublished") return claimReward(certId);
+        const prev = current[track.field];
+        if (s.status !== prev.status) {
+          const next = { ...prev, status: s.status, txHash: s.txHash ?? prev.txHash };
+          if (s.aggregationDetails) next.aggregation = await aggregationOf(s, current.publicSignals, track.client);
+          certs.put({ ...current, [track.field]: next });
+          if (s.status === "AggregationPublished" && track.onPublished) return track.onPublished(certId);
         }
-        if (TERMINAL.has(s.status) && !(s.status === "Finalized" && kurier.waitForAggregation)) return;
+        if (track.done.has(s.status)) return;
       } catch (err) {
-        log(`zkverify status error for ${certId}: ${err.message}`);
+        log(`${track.field} status error for ${certId}: ${err.message}`);
       }
-      // Aggregation can take a while; keep checking for up to ~2h.
-      if (tries < 300) pollJob(certId, jobId, tries + 1);
+      // Aggregation and relay can take a while; keep checking for up to ~2h.
+      if (tries < 300) pollJob(certId, jobId, track, tries + 1);
     }, Math.min(5_000 * 2 ** Math.min(tries, 3), 30_000));
   }
 
   /** Normalizes Kurier's aggregation data and checks it is the leaf our contract will rebuild. */
-  async function aggregationOf(s, publicSignals) {
+  async function aggregationOf(s, publicSignals, client) {
     const d = s.aggregationDetails;
-    const expectedLeaf = groth16Leaf(await kurier.vkHash(), publicSignals);
+    const expectedLeaf = groth16Leaf(await client.vkHash(), publicSignals);
     const agg = {
       domainId: s.domainId ?? d.domainId ?? limits.domainId ?? null,
       aggregationId: s.aggregationId ?? d.aggregationId,
@@ -193,7 +201,7 @@ export function createApi({ courses, prover, store, kurier = null, llm = null, r
   async function claimReward(certId) {
     const cert = certs.get(certId);
     if (!relayer) return;
-    const agg = cert.zkverify.aggregation;
+    const agg = cert.relay?.aggregation;
     if (!agg?.leafMatches || agg.domainId == null) {
       certs.put({ ...cert, reward: { status: "NotClaimable", reason: !agg?.leafMatches ? "leaf mismatch" : "unknown domainId" } });
       return;
