@@ -58,7 +58,8 @@ if (args.answers) {
   answers = (parsed.answers ?? []).map((a) => LETTERS.indexOf(String(a).trim().toUpperCase()[0]));
 }
 if (answers.length !== attempt.questions.length || answers.some((a) => a < 0)) throw new Error(`could not form ${attempt.questions.length} answers`);
-console.log(`answers: ${answers.map((a) => LETTERS[a]).join(" ")}`);
+// Print only that the answers are formed: a public log of answers would leak the key on a pass.
+console.log(`answered ${answers.length}/${attempt.questions.length} questions${process.env.SHOW_ANSWERS ? `: ${answers.map((a) => LETTERS[a]).join(" ")}` : " (answers kept private; set SHOW_ANSWERS=1 to print)"}`);
 
 // 4. Commit + submit. The salt is our receipt: we can prove later which answers were graded.
 const answersSalt = randomField();

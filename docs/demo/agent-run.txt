@@ -1,0 +1,7 @@
+agent address: 0x18a365ccbca2465a037885b1aadab64deabaf812 (throwaway key; set AGENT_PRIVATE_KEY to keep one)
+studying "What Agents Can Do with ZK" (5 lessons, pass mark 7/10)
+answered 10/10 questions (answers kept private; set SHOW_ANSWERS=1 to print)
+answers commitment matches our receipt: 7772881255615240…
+PASSED — certificate 942fd67a6a3d5db7 for 0x18a365ccbca2465a037885b1aadab64deabaf812
+verification: valid {"proofValid":true,"knownCourse":true,"keyCommitmentMatches":true,"passMarkMatches":true}
+zkVerify: Submitting

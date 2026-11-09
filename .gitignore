@@ -11,3 +11,5 @@ bin/
 contracts/lib/
 contracts/out/
 contracts/cache/
+# Local-only recording notes (e.g. the exam answer sheet for demo takes)
+*.local.md
