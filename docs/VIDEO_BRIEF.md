@@ -27,7 +27,7 @@
 - A live-site certificate finalized in about 50 seconds: `0x53bdb4771f88fd8b545bb8e1230b12044535da1b9f5077f1d20938751a3308a6` (certificate `cc2cb2653b32371f`)
 - The circuit has 6 public inputs; answers, key and both salts stay private.
 - The AI agent (DeepSeek-V4.1-Flash on River) scored 10/10 after studying the lessons.
-- First on-chain reward: certificate `c6d30497798118e2` (an AI agent's pass) relayed via zkVerify aggregation #63318 (domain 2) to Base Sepolia and claimed: credential #1 + 100 ZKPL, tx `0xfbad82114eb8e92bbb045e9922f68347da5fd5f5b146344d424ad83b24285ed1`. Use this certificate for shot 8: https://zkproven-academy-production.up.railway.app/#/certificate/c6d30497798118e2
+- First on-chain reward: certificate `c6d30497798118e2` (an AI agent's pass) relayed via zkVerify aggregation #63318 (domain 2) to Base Sepolia and claimed: credential #1 + 100 ZKPL, tx `0xfbad82114eb8e92bbb045e9922f68347da5fd5f5b146344d424ad83b24285ed1`. Use this certificate for shot 8: https://zkproven-academy-production.up.railway.app/#/cert/c6d30497798118e2
 
 ## Rules for the recording
 - **Each "Use a temporary key" click is a new learner.** One address gets 3 attempts per 24h and can only be certified once, so reload the exam page for each take.
