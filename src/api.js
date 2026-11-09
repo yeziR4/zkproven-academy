@@ -18,7 +18,7 @@ export function createApi({ courses, prover, store, kurier = null, rewardKurier 
   // when rewards are on, separately to the zkVerify network that relays to the
   // reward chain (mainnet zkVerify only relays to mainnet chains).
   const certTrack = kurier && { field: "zkverify", client: kurier, done: TERMINAL };
-  const relayTrack = rewardKurier && relayer && { field: "relay", client: rewardKurier, done: new Set(["AggregationPublished", "Failed"]), onPublished: (id) => claimReward(id) };
+  const relayTrack = rewardKurier && relayer && { field: "relay", client: rewardKurier, done: new Set(["AggregationPublished", "Failed"]), afterPoll: (id) => maybeClaim(id) };
   const tracks = [certTrack, relayTrack].filter(Boolean);
   const attempts = store.collection("attempts");
   const certs = store.collection("certificates");
@@ -169,8 +169,10 @@ export function createApi({ courses, prover, store, kurier = null, rewardKurier 
           const next = { ...prev, status: s.status, txHash: s.txHash ?? prev.txHash };
           if (s.aggregationDetails) next.aggregation = await aggregationOf(s, current.publicSignals, track.client);
           certs.put({ ...current, [track.field]: next });
-          if (s.status === "AggregationPublished" && track.onPublished) return track.onPublished(certId);
         }
+        // Kurier can report "Aggregated" long after the root is already on the reward chain,
+        // so check the chain itself on every poll instead of waiting for "AggregationPublished".
+        if (track.afterPoll && certs.get(certId)[track.field]?.aggregation && (await track.afterPoll(certId))) return;
         if (track.done.has(s.status)) return;
       } catch (err) {
         log(`${track.field} status error for ${certId}: ${err.message}`);
@@ -196,6 +198,43 @@ export function createApi({ courses, prover, store, kurier = null, rewardKurier 
     };
     if (!agg.leafMatches) log(`leaf mismatch: kurier ${d.leaf} vs ours ${expectedLeaf}`);
     return agg;
+  }
+
+  /** Claims once the aggregation root is on-chain. Returns true when there is nothing left to wait for. */
+  async function maybeClaim(certId) {
+    const cert = certs.get(certId);
+    if (!relayer || ["Claimed", "Claiming"].includes(cert.reward?.status)) return true;
+    const agg = cert.relay?.aggregation;
+    if (!agg) return false;
+    if (!agg.leafMatches) return claimReward(certId).then(() => true);
+    let domainId = agg.domainId;
+    const root = domainId != null ? await relayer.publishedRoot(domainId, agg.aggregationId) : null;
+    if (!root || root.toLowerCase() !== agg.receipt?.toLowerCase()) {
+      domainId = await relayer.findDomain(agg.aggregationId, agg.receipt);
+      if (domainId == null) return false; // not published on the reward chain yet
+    }
+    if (String(domainId) !== String(agg.domainId)) {
+      certs.put({ ...cert, relay: { ...cert.relay, aggregation: { ...agg, domainId } } });
+    }
+    await claimReward(certId);
+    return true;
+  }
+
+  /** After a restart, pick up certificates whose verification or reward is still in flight. */
+  function resume() {
+    for (const cert of certs.all()) {
+      for (const track of tracks) {
+        const t = cert[track.field];
+        if (!t?.jobId || track.done.has(t.status)) continue;
+        if (track === relayTrack && cert.reward?.status === "Claimed") continue;
+        log(`resuming ${track.field} for ${cert.id} (${t.status})`);
+        pollJob(cert.id, t.jobId, track);
+      }
+      if (relayTrack && relayTrack.done.has(cert.relay?.status) && cert.relay?.aggregation && cert.reward?.status !== "Claimed") {
+        log(`retrying reward for ${cert.id}`);
+        maybeClaim(cert.id).catch((err) => log(`reward retry failed for ${cert.id}: ${err.message}`));
+      }
+    }
   }
 
   async function claimReward(certId) {
@@ -236,7 +275,7 @@ export function createApi({ courses, prover, store, kurier = null, rewardKurier 
     });
   }
 
-  return async function api(req, res) {
+  async function api(req, res) {
     const pathname = new URL(req.url, "http://x").pathname;
     for (const [method, re, handler] of routes) {
       const m = pathname.match(re);
@@ -251,7 +290,9 @@ export function createApi({ courses, prover, store, kurier = null, rewardKurier 
       }
     }
     return send(res, fail(404, "not found"));
-  };
+  }
+  api.resume = resume;
+  return api;
 }
 
 const ok = (data) => ({ status: 200, data });

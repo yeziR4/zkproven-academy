@@ -45,12 +45,13 @@ const llm = makeLlm();
 if (!llm) log("LLM_BASE_URL / LLM_MODEL not set: the tutor will be unavailable");
 
 const relayer = rewardKurier
-  ? makeRelayer({ privateKey: config.relayerKey, rpcUrl: config.rewardRpcUrl, rewardsAddress: config.rewardsAddress, chainId: config.aggregationChainId })
+  ? makeRelayer({ privateKey: config.relayerKey, rpcUrl: config.rewardRpcUrl, rewardsAddress: config.rewardsAddress, chainId: config.aggregationChainId, zkVerifyAddress: process.env.ZKVERIFY_AGGREGATION })
   : null;
 if (relayer) log(`rewards: ${relayer.rewardsAddress} on ${relayer.chain.name}, relayer ${relayer.address}`);
 else log("rewards disabled (set ZKVERIFY_CHAIN_ID, KURIER_TESTNET_API_KEY, REWARDS_ADDRESS, RELAYER_PRIVATE_KEY)");
 
 const api = createApi({ courses, prover, store, kurier, rewardKurier, llm, relayer, limits: { domainId: config.domainId }, log });
+api.resume();
 const web = serveStatic(path.join(root, "public"));
 http
   .createServer((req, res) => (req.url.startsWith("/api/") ? api(req, res) : web(req, res)))

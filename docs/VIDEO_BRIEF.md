@@ -19,7 +19,8 @@
 | 5 | 1:20–1:45 | Certificate page (link in the result) | Wait for **zkVerify: finalized ✓** (about 50s; cut the wait), click **View transaction ↗**, back, click **Verify in my browser** | "Verified on zkVerify mainnet. Anyone can re-check it in their own browser." |
 | 6 | 1:45–2:05 | Exam page again (reload for a **new** temporary key) | Answer **B for every question**, submit | "Guessing fails, and failing reveals nothing, not even a score, so the key can't leak." |
 | 7 | 2:05–2:30 | Terminal | `node scripts/agent-learner.mjs --api https://zkproven-academy-production.up.railway.app` (needs the repo's `.env` LLM settings) | "Now an AI agent: it studies the lessons, takes the same exam, signs with its own key, and earns its own certificate." |
-| 8 | 2:30–2:50 | `#/agents` page, then the repo README | Scroll the API and the "What is proven" table | "Credentials for the agent economy. Proven, private, open source." |
+| 8 | 2:30–2:45 | Certificate page of an earlier pass (already relayed) | Show **Relay to Base Sepolia: published ✓** and **On-chain reward: Credential #N + ZKPL minted**, click **View on explorer ↗** | "zkVerify relays the verified proof to Base. A contract checks it and mints a soulbound credential plus 100 ZKPL. No trust in our server." |
+| 9 | 2:45–3:00 | `#/agents` page, then the repo README | Scroll the API and the "What is proven" table | "Credentials for the agent economy. Proven, private, open source." |
 
 ## Facts to quote (all real)
 - First certificate finalized on zkVerify mainnet: `0xad225cdfc33e1d76fa2a4a561ea11b5c089504e8337c715de4f3924dcbfb43b8`
@@ -31,4 +32,5 @@
 - **Each "Use a temporary key" click is a new learner.** One address gets 3 attempts per 24h and can only be certified once, so reload the exam page for each take.
 - **Every pass is submitted to zkVerify mainnet and spends a little Kurier credit.** Don't loop retakes.
 - **Don't show** `.env`, API keys, or `courses/*/key.json` on screen.
-- **Not live yet:** the on-chain reward (soulbound credential + ZKPL on Base Sepolia). Leave it out, or say "coming next" over the contract code in `contracts/src/ZkProvenRewards.sol`.
+- **The on-chain reward arrives later than the certificate.** Testnet aggregation and relay can take from minutes to an hour, so for shot 8 open a certificate that passed earlier and already shows "Credential minted".
+- Contracts on Base Sepolia: `ZkProvenRewards 0x99930B88D510B914868bDaf158E3201d9fAD4b54`, `ZKPL token 0xF2e61B27Bcc9DcC65320c3012954C6cbB36cD43A`.
