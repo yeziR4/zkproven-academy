@@ -285,7 +285,7 @@ async function certificate(id) {
         <dt>Answers commitment</dt><dd class="mono">${esc(short(sig("answersCommitment"), 14))}</dd>
         ${z.txHash ? `<dt>zkVerify tx</dt><dd class="mono">${esc(short(z.txHash, 14))}</dd>` : ""}
         ${z.jobId ? `<dt>Kurier job</dt><dd class="mono">${esc(z.jobId)}</dd>` : ""}
-        ${relayRow(c.relay)}
+        ${relayRow(c.relay, c.reward)}
         ${rewardRow(c.reward)}
       </dl>
       <p class="muted">What this proves: answers committed by this address scored at least the pass mark against the answer key committed for this course. The answers, the score and the key stay private.</p>
@@ -298,13 +298,18 @@ async function certificate(id) {
     await navigator.clipboard.writeText(JSON.stringify({ proof: c.proof, publicSignals: c.publicSignals }));
     document.getElementById("copy").textContent = "Copied";
   };
-  const relayPending = c.relay && !["AggregationPublished", "Failed", "SubmitFailed"].includes(c.relay.status);
-  const rewardPending = c.reward?.status === "Claiming" || (c.relay?.status === "AggregationPublished" && !c.reward);
+  const claimed = isClaimed(c.reward);
+  const relayPending = c.relay && !claimed && !["AggregationPublished", "Failed", "SubmitFailed"].includes(c.relay.status);
+  const rewardPending = c.reward?.status === "Claiming" || (c.relay?.aggregation && !c.reward);
   if (!TERMINAL.has(z.status) || relayPending || rewardPending) pollTimer = setTimeout(render, 5000);
 }
 
-function relayRow(r) {
+const isClaimed = (r) => r?.status === "Claimed" || r?.status === "success";
+
+function relayRow(r, reward) {
   if (!r) return "";
+  // The claim succeeding proves the root is on Base Sepolia, even if Kurier still says "Aggregated".
+  if (isClaimed(reward)) r = { ...r, status: "AggregationPublished" };
   const label = {
     Submitting: "submitting…",
     Submitted: "verifying…",
@@ -320,7 +325,7 @@ function relayRow(r) {
 
 function rewardRow(r) {
   if (!r) return "";
-  if (r.status === "Claimed") {
+  if (isClaimed(r)) {
     return `<dt>On-chain reward</dt><dd><span class="badge ok">Credential #${esc(r.tokenId)} + ZKPL minted</span> <a href="${esc(r.explorer)}" target="_blank" rel="noopener">View on explorer ↗</a></dd>`;
   }
   const label = { Claiming: "claiming…", ClaimFailed: `claim failed: ${r.error ?? ""}`, NotClaimable: `not claimable: ${r.reason ?? ""}`, Reverted: "claim reverted" }[r.status] ?? r.status;

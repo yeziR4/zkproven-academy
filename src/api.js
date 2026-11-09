@@ -203,7 +203,7 @@ export function createApi({ courses, prover, store, kurier = null, rewardKurier 
   /** Claims once the aggregation root is on-chain. Returns true when there is nothing left to wait for. */
   async function maybeClaim(certId) {
     const cert = certs.get(certId);
-    if (!relayer || ["Claimed", "Claiming"].includes(cert.reward?.status)) return true;
+    if (!relayer || ["Claimed", "Claiming", "success"].includes(cert.reward?.status)) return true;
     const agg = cert.relay?.aggregation;
     if (!agg) return false;
     if (!agg.leafMatches) return claimReward(certId).then(() => true);
@@ -226,11 +226,11 @@ export function createApi({ courses, prover, store, kurier = null, rewardKurier 
       for (const track of tracks) {
         const t = cert[track.field];
         if (!t?.jobId || track.done.has(t.status)) continue;
-        if (track === relayTrack && cert.reward?.status === "Claimed") continue;
+        if (track === relayTrack && ["Claimed", "success"].includes(cert.reward?.status)) continue;
         log(`resuming ${track.field} for ${cert.id} (${t.status})`);
         pollJob(cert.id, t.jobId, track);
       }
-      if (relayTrack && relayTrack.done.has(cert.relay?.status) && cert.relay?.aggregation && cert.reward?.status !== "Claimed") {
+      if (relayTrack && relayTrack.done.has(cert.relay?.status) && cert.relay?.aggregation && !["Claimed", "success"].includes(cert.reward?.status)) {
         log(`retrying reward for ${cert.id}`);
         maybeClaim(cert.id).catch((err) => log(`reward retry failed for ${cert.id}: ${err.message}`));
       }
@@ -248,7 +248,7 @@ export function createApi({ courses, prover, store, kurier = null, rewardKurier 
     certs.put({ ...cert, reward: { status: "Claiming" } });
     try {
       const r = await relayer.claim({ publicSignals: cert.publicSignals, aggregation: agg });
-      certs.put({ ...certs.get(certId), reward: { status: r.status === "success" ? "Claimed" : "Reverted", ...r, contract: relayer.rewardsAddress, chainId: relayer.chain.id } });
+      certs.put({ ...certs.get(certId), reward: { ...r, status: r.status === "success" ? "Claimed" : "Reverted", contract: relayer.rewardsAddress, chainId: relayer.chain.id } });
     } catch (err) {
       log(`reward claim failed for ${certId}: ${err.shortMessage ?? err.message}`);
       certs.put({ ...certs.get(certId), reward: { status: "ClaimFailed", error: err.shortMessage ?? err.message } });
